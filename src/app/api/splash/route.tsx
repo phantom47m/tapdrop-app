@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 export const runtime = "nodejs";
-export const dynamic = "force-static";
+// Per-request render so different ?w=&h= return different sizes. The
+// long Cache-Control: immutable header on the response keeps CDN traffic
+// cheap — each (w,h) pair is computed once and cached for a year.
+export const dynamic = "force-dynamic";
 
 /**
  * GET /api/splash?w=1290&h=2796

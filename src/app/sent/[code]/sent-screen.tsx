@@ -13,6 +13,8 @@ type Props = {
   recipientUrl: string;
 };
 
+type Status = "waiting" | "delivered" | "expired" | "exhausted";
+
 function formatBytes(n: number): string {
   if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " MB";
   if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
@@ -46,9 +48,9 @@ export default function SentScreen({
   const qrRef = useRef<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(() => formatRemaining(expiresAt));
+  const [status, setStatus] = useState<Status>("waiting");
 
-  // Generate the QR client-side so the URL never appears in HTML on the wire
-  // (purely cosmetic — the URL is also visible below).
+  // QR generation — client-side, deep ink on slightly-warm white.
   useEffect(() => {
     if (!qrRef.current) return;
     QRCode.toString(recipientUrl, {
@@ -61,10 +63,46 @@ export default function SentScreen({
     });
   }, [recipientUrl]);
 
+  // Countdown
   useEffect(() => {
     const i = setInterval(() => setRemaining(formatRemaining(expiresAt)), 1000);
     return () => clearInterval(i);
   }, [expiresAt]);
+
+  // Live status polling — the "watch this" moment for a Joe walkthrough.
+  // Poll every 2.5s while waiting; once delivered, slow down to 30s and
+  // eventually stop. AbortController for hot-reload safety.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    let stopped = false;
+
+    async function tick() {
+      if (stopped) return;
+      try {
+        const res = await fetch(`/api/drops/${code}/status`, {
+          signal: ctrl.signal,
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const body = await res.json();
+          if (body.expired) setStatus("expired");
+          else if (body.delivered) setStatus("delivered");
+          else if (body.exhausted) setStatus("exhausted");
+          else setStatus("waiting");
+        }
+      } catch {
+        // ignore — try again next tick
+      }
+    }
+
+    tick();
+    const interval = setInterval(tick, 2500);
+    return () => {
+      stopped = true;
+      ctrl.abort();
+      clearInterval(interval);
+    };
+  }, [code]);
 
   function copyUrl() {
     navigator.clipboard.writeText(recipientUrl);
@@ -87,6 +125,16 @@ export default function SentScreen({
     }
   }
 
+  // Status-pill data
+  const pill =
+    status === "delivered"
+      ? { label: "Delivered ✓", color: "#1d6e3a", pulsing: false }
+      : status === "expired"
+        ? { label: "Expired", color: "var(--ink-mute)", pulsing: false }
+        : status === "exhausted"
+          ? { label: "Picked up ✓", color: "#1d6e3a", pulsing: false }
+          : { label: "Waiting for tap…", color: "var(--accent)", pulsing: true };
+
   return (
     <main className="relative z-10 flex-1 flex flex-col">
       <header className="flex justify-between items-center px-6 md:px-12 pt-7 pb-5 border-b border-[var(--rule)]">
@@ -97,15 +145,31 @@ export default function SentScreen({
         >
           Tap<span className="dot" />Drop
         </Link>
-        <span className="mono-eyebrow text-[10px] md:text-[11px]">Sent</span>
+        <span className="mono-eyebrow text-[10px] md:text-[11px]">
+          {status === "delivered" ? "Delivered" : "Sent"}
+        </span>
       </header>
 
       <section className="flex-1 grid place-items-center px-5 py-10 md:py-14">
         <div className="w-full max-w-[460px]">
           <div className="text-center mb-6">
-            <div className="mono-eyebrow mb-3">— Ready for tap —</div>
+            <div className="mono-eyebrow mb-3">
+              {status === "delivered"
+                ? "— Tap received —"
+                : "— Ready for tap —"}
+            </div>
             <h1 className="display" style={{ fontSize: "clamp(34px, 5vw, 50px)" }}>
-              <em>Show this</em><br />to anyone.
+              {status === "delivered" ? (
+                <>
+                  <em>They got it.</em>
+                </>
+              ) : (
+                <>
+                  <em>Show this</em>
+                  <br />
+                  to anyone.
+                </>
+              )}
             </h1>
           </div>
 
@@ -179,7 +243,7 @@ export default function SentScreen({
             </div>
           </div>
 
-          {/* QR */}
+          {/* QR — fades on delivered */}
           <div
             style={{
               background: "#fff",
@@ -190,6 +254,8 @@ export default function SentScreen({
               alignItems: "center",
               gap: 12,
               border: "1px solid rgba(0,0,0,0.04)",
+              opacity: status === "delivered" ? 0.45 : 1,
+              transition: "opacity 0.4s ease",
             }}
           >
             <div ref={qrRef} style={{ width: 220, height: 220 }} />
@@ -202,13 +268,31 @@ export default function SentScreen({
                 color: "var(--ink-mute)",
               }}
             >
-              — Aim camera, no app needed —
+              {status === "delivered"
+                ? "— Already grabbed —"
+                : "— Aim camera, no app needed —"}
             </div>
           </div>
 
           {/* Or-type code */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0 8px" }}>
-            <span style={{ flex: 1, height: 1, background: "linear-gradient(to right, transparent, var(--rule), transparent)" }} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "16px 0 8px",
+              opacity: status === "delivered" ? 0.45 : 1,
+              transition: "opacity 0.4s ease",
+            }}
+          >
+            <span
+              style={{
+                flex: 1,
+                height: 1,
+                background:
+                  "linear-gradient(to right, transparent, var(--rule), transparent)",
+              }}
+            />
             <span
               style={{
                 fontFamily: "var(--font-mono)",
@@ -220,7 +304,14 @@ export default function SentScreen({
             >
               or type
             </span>
-            <span style={{ flex: 1, height: 1, background: "linear-gradient(to right, transparent, var(--rule), transparent)" }} />
+            <span
+              style={{
+                flex: 1,
+                height: 1,
+                background:
+                  "linear-gradient(to right, transparent, var(--rule), transparent)",
+              }}
+            />
           </div>
 
           <div
@@ -232,6 +323,8 @@ export default function SentScreen({
               textAlign: "center",
               color: "var(--ink)",
               marginBottom: 4,
+              opacity: status === "delivered" ? 0.45 : 1,
+              transition: "opacity 0.4s ease",
             }}
           >
             {code.split("").map((ch, i) => (
@@ -258,6 +351,8 @@ export default function SentScreen({
               textAlign: "center",
               color: "var(--ink-mute)",
               marginBottom: 18,
+              opacity: status === "delivered" ? 0.45 : 1,
+              transition: "opacity 0.4s ease",
             }}
           >
             at <b style={{ color: "var(--ink)", fontWeight: 500 }}>tapdrop.app</b>
@@ -266,25 +361,40 @@ export default function SentScreen({
           {/* Status / actions */}
           <div
             style={{
-              background: "var(--card)",
+              background: status === "delivered" ? "#E8F2EC" : "var(--card)",
+              border: status === "delivered" ? "1px solid #B5D6C2" : "1px solid var(--rule)",
               borderRadius: 14,
               padding: "12px 14px",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
               gap: 10,
+              transition: "background 0.4s ease, border-color 0.4s ease",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "var(--accent)",
-                  flexShrink: 0,
-                }}
-              />
+              <div style={{ position: "relative", width: 8, height: 8, flexShrink: 0 }}>
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    borderRadius: "50%",
+                    background: pill.color,
+                  }}
+                />
+                {pill.pulsing && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      borderRadius: "50%",
+                      background: pill.color,
+                      animation: "td-ping 1.6s cubic-bezier(0,0,0.2,1) infinite",
+                      opacity: 0.55,
+                    }}
+                  />
+                )}
+              </div>
               <div style={{ minWidth: 0 }}>
                 <div
                   style={{
@@ -294,7 +404,7 @@ export default function SentScreen({
                     color: "var(--ink)",
                   }}
                 >
-                  Waiting for tap…
+                  {pill.label}
                 </div>
                 <div
                   style={{
@@ -306,7 +416,7 @@ export default function SentScreen({
                     marginTop: 2,
                   }}
                 >
-                  Expires {remaining}
+                  {status === "delivered" ? "Just now" : `Expires ${remaining}`}
                 </div>
               </div>
             </div>
@@ -344,6 +454,13 @@ export default function SentScreen({
         <span>47 Industries × iUSEJOE</span>
         <span>Drop · {code}</span>
       </footer>
+
+      <style>{`
+        @keyframes td-ping {
+          0%   { transform: scale(1);   opacity: 0.55; }
+          100% { transform: scale(2.4); opacity: 0;    }
+        }
+      `}</style>
     </main>
   );
 }

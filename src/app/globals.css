@@ -109,3 +109,34 @@ body::before {
 .stage-chip.next {
   color: var(--ink-light);
 }
+
+/* Mobile-safe spacing — accounts for iOS Safari's bottom bar / home indicator */
+@supports (padding: max(0px)) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Smooth page enter */
+@keyframes td-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+main { animation: td-fade-up 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Visual focus rings — keyboard-only via :focus-visible */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Better tap response on iOS — kills the gray flash */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Tighten the homepage submit button on tiny screens */
+@media (max-width: 380px) {
+  body { font-size: 14px; }
+}

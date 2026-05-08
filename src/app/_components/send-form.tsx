@@ -20,7 +20,7 @@ function fileExt(name: string): string {
 export default function SendForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [senderName, setSenderName] = useState("");
@@ -30,40 +30,41 @@ export default function SendForm() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const totalSize = files.reduce((a, f) => a + f.size, 0);
+
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setDragOver(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) acceptFile(f);
+    if (e.dataTransfer.files?.length) acceptFiles(Array.from(e.dataTransfer.files));
   }
-
   function handlePick(e: ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) acceptFile(f);
+    if (e.target.files?.length) acceptFiles(Array.from(e.target.files));
   }
-
-  function acceptFile(f: File) {
+  function acceptFiles(picked: File[]) {
     setError(null);
-    if (f.size === 0) {
-      setError("That file is empty.");
+    const all = [...files, ...picked].filter((f) => f.size > 0);
+    const total = all.reduce((a, f) => a + f.size, 0);
+    if (total > MAX_BYTES) {
+      setError(`Too large. Max is ${MAX_BYTES / (1024 * 1024)} MB total.`);
       return;
     }
-    if (f.size > MAX_BYTES) {
-      setError(`Too large. Max is ${MAX_BYTES / (1024 * 1024)} MB for v0.1.`);
-      return;
-    }
-    setFile(f);
+    setFiles(all);
+  }
+  function removeAt(idx: number) {
+    if (busy) return;
+    setFiles((arr) => arr.filter((_, i) => i !== idx));
+    setError(null);
   }
 
   async function handleSend() {
-    if (!file || busy) return;
+    if (files.length === 0 || busy) return;
     setBusy(true);
     setError(null);
     setProgress(0);
 
     try {
       const fd = new FormData();
-      fd.append("file", file);
+      for (const f of files) fd.append("file", f);
       if (senderName.trim()) fd.append("senderName", senderName.trim());
       if (pin.trim()) fd.append("pin", pin.trim());
       fd.append("expiryHours", String(expiryHours));
@@ -79,11 +80,8 @@ export default function SendForm() {
         xhr.onload = () => {
           try {
             const body = JSON.parse(xhr.responseText || "{}");
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(body.code);
-            } else {
-              reject(new Error(body.error || `Upload failed (${xhr.status})`));
-            }
+            if (xhr.status >= 200 && xhr.status < 300) resolve(body.code);
+            else reject(new Error(body.error || `Upload failed (${xhr.status})`));
           } catch {
             reject(new Error(`Upload failed (${xhr.status})`));
           }
@@ -102,7 +100,7 @@ export default function SendForm() {
 
   function reset() {
     if (busy) return;
-    setFile(null);
+    setFiles([]);
     setError(null);
     setProgress(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -110,8 +108,7 @@ export default function SendForm() {
 
   return (
     <div>
-      {/* Drop zone */}
-      {!file ? (
+      {files.length === 0 ? (
         <div
           onClick={() => fileInputRef.current?.click()}
           onDragOver={(e) => {
@@ -162,7 +159,7 @@ export default function SendForm() {
               marginBottom: 6,
             }}
           >
-            Drop a file here
+            Drop files here
           </div>
           <div
             style={{
@@ -173,116 +170,173 @@ export default function SendForm() {
               color: "var(--ink-mute)",
             }}
           >
-            or tap to choose
+            or tap to choose · multiple ok
           </div>
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             onChange={handlePick}
             style={{ display: "none" }}
           />
         </div>
       ) : (
-        // Selected-file card
-        <div
-          style={{
-            background: "var(--card)",
-            border: "1px solid var(--rule)",
-            borderRadius: 18,
-            padding: 18,
-            display: "flex",
-            alignItems: "center",
-            gap: 16,
-          }}
-        >
-          <div
-            style={{
-              width: 52,
-              height: 60,
-              background: "#fff",
-              border: "1px solid var(--rule)",
-              borderRadius: 5,
-              position: "relative",
-              flexShrink: 0,
-            }}
-          >
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {files.map((f, i) => (
             <div
+              key={`${f.name}-${i}`}
               style={{
-                position: "absolute",
-                bottom: 6,
-                left: 0,
-                right: 0,
-                textAlign: "center",
-                fontFamily: "var(--font-mono)",
-                fontWeight: 600,
-                fontSize: 10,
-                letterSpacing: "0.08em",
-                color: "var(--accent)",
+                background: "var(--card)",
+                border: "1px solid var(--rule)",
+                borderRadius: 14,
+                padding: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
               }}
             >
-              {fileExt(file.name)}
+              <div
+                style={{
+                  width: 38,
+                  height: 44,
+                  background: "#fff",
+                  border: "1px solid var(--rule)",
+                  borderRadius: 4,
+                  position: "relative",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 4,
+                    left: 0,
+                    right: 0,
+                    textAlign: "center",
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 600,
+                    fontSize: 8.5,
+                    letterSpacing: "0.08em",
+                    color: "var(--accent)",
+                  }}
+                >
+                  {fileExt(f.name)}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontFamily: "var(--font-sans)",
+                    fontWeight: 500,
+                    fontSize: 13,
+                    color: "var(--ink)",
+                    marginBottom: 3,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {f.name}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 9.5,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-mute)",
+                  }}
+                >
+                  {fileExt(f.name)} · {formatBytes(f.size)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeAt(i)}
+                disabled={busy}
+                aria-label="Remove"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  background: "transparent",
+                  border: "1px solid var(--rule)",
+                  cursor: busy ? "not-allowed" : "pointer",
+                  color: "var(--ink-soft)",
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 14 14">
+                  <path
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    d="M2 2l10 10M12 2L2 12"
+                    fill="none"
+                  />
+                </svg>
+              </button>
             </div>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontFamily: "var(--font-sans)",
-                fontWeight: 500,
-                fontSize: 14,
-                color: "var(--ink)",
-                marginBottom: 4,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {file.name}
-            </div>
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: "var(--ink-mute)",
-              }}
-            >
-              {fileExt(file.name)} · {formatBytes(file.size)}
-            </div>
-          </div>
+          ))}
+
           <button
             type="button"
-            onClick={reset}
+            onClick={() => fileInputRef.current?.click()}
             disabled={busy}
-            aria-label="Remove"
             style={{
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--ink-mute)",
               background: "transparent",
-              border: "1px solid var(--rule)",
+              border: `1px dashed var(--rule)`,
+              borderRadius: 12,
+              padding: 12,
               cursor: busy ? "not-allowed" : "pointer",
-              color: "var(--ink-soft)",
-              display: "grid",
-              placeItems: "center",
-              flexShrink: 0,
+              marginTop: 4,
             }}
           >
-            <svg width="11" height="11" viewBox="0 0 14 14">
-              <path
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                d="M2 2l10 10M12 2L2 12"
-                fill="none"
-              />
-            </svg>
+            + Add another file
           </button>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontFamily: "var(--font-mono)",
+              fontSize: 9.5,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "var(--ink-mute)",
+              padding: "4px 4px 0",
+            }}
+          >
+            <span>
+              {files.length} file{files.length === 1 ? "" : "s"}
+            </span>
+            <span>
+              <b style={{ color: "var(--ink)", fontWeight: 500 }}>
+                {formatBytes(totalSize)}
+              </b>{" "}
+              / {MAX_BYTES / (1024 * 1024)} MB
+            </span>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handlePick}
+            style={{ display: "none" }}
+          />
         </div>
       )}
 
-      {/* Advanced fields */}
-      {file && (
+      {/* Advanced */}
+      {files.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <button
             type="button"
@@ -327,7 +381,9 @@ export default function SendForm() {
                     type="text"
                     inputMode="numeric"
                     value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                    onChange={(e) =>
+                      setPin(e.target.value.replace(/\D/g, "").slice(0, 8))
+                    }
                     placeholder="—"
                     maxLength={8}
                     style={inputStyle}
@@ -353,7 +409,7 @@ export default function SendForm() {
       )}
 
       {/* Submit */}
-      {file && (
+      {files.length > 0 && (
         <button
           type="button"
           onClick={handleSend}
@@ -377,11 +433,22 @@ export default function SendForm() {
         >
           {busy ? (
             <span style={{ position: "relative", zIndex: 1 }}>
-              Uploading… {progress}%
+              {files.length > 1 ? `Zipping & uploading…` : `Uploading…`} {progress}%
             </span>
           ) : (
-            <span style={{ position: "relative", zIndex: 1, display: "inline-flex", gap: 10, alignItems: "center" }}>
-              Send <span style={{ fontFamily: "var(--font-display)", fontStyle: "italic" }}>→</span>
+            <span
+              style={{
+                position: "relative",
+                zIndex: 1,
+                display: "inline-flex",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              {files.length > 1 ? `Send ${files.length} files` : "Send"}{" "}
+              <span style={{ fontFamily: "var(--font-display)", fontStyle: "italic" }}>
+                →
+              </span>
             </span>
           )}
           {busy && (
@@ -397,6 +464,29 @@ export default function SendForm() {
               }}
             />
           )}
+        </button>
+      )}
+
+      {files.length > 0 && (
+        <button
+          type="button"
+          onClick={reset}
+          disabled={busy}
+          style={{
+            width: "100%",
+            marginTop: 8,
+            padding: "10px 14px",
+            background: "transparent",
+            border: "none",
+            cursor: busy ? "not-allowed" : "pointer",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: "var(--ink-light)",
+          }}
+        >
+          Clear all
         </button>
       )}
 

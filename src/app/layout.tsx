@@ -1,10 +1,30 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const APP_HOST =
+  process.env.NEXT_PUBLIC_APP_HOST ||
+  "tapdrop-app-production.up.railway.app";
+const APP_URL = `https://${APP_HOST}`;
+
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: "TapDrop — drop a file, show your screen, they tap it",
   description:
     "Send any file to any phone with a tap. No app on the recipient's phone, ever. iPhone or Android.",
+  openGraph: {
+    type: "website",
+    url: APP_URL,
+    siteName: "TapDrop",
+    title: "TapDrop — drop a file, show your screen, they tap it",
+    description:
+      "Send any file to any phone with a tap. No app on the recipient's phone, ever.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TapDrop — drop a file, show your screen, they tap it",
+    description:
+      "Send any file to any phone with a tap. No app on the recipient's phone, ever.",
+  },
 };
 
 export const viewport: Viewport = {

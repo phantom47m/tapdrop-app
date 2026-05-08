@@ -25,6 +25,11 @@ export const metadata: Metadata = {
     description:
       "Send any file to any phone with a tap. No app on the recipient's phone, ever.",
   },
+  appleWebApp: {
+    title: "TapDrop",
+    statusBarStyle: "default",
+    capable: true,
+  },
 };
 
 export const viewport: Viewport = {

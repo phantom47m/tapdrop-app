@@ -140,3 +140,22 @@ button, a {
 @media (max-width: 380px) {
   body { font-size: 14px; }
 }
+
+/* Standalone PWA mode (Add-to-Home-Screen) — feel like a real app, not Safari */
+@media (display-mode: standalone) {
+  /* Kill the rubber-band scroll bounce that exposes the bg below */
+  html, body {
+    overscroll-behavior-y: contain;
+  }
+  /* Hide selection callouts on tap-and-hold */
+  body {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* But keep selection in inputs/textareas (so PIN entry etc. still work) */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}

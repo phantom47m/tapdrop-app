@@ -1,15 +1,26 @@
-import { pgTable, text, integer, timestamp, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, varchar, customType } from "drizzle-orm/pg-core";
+
+/**
+ * Postgres bytea via Drizzle. Returns a Buffer when read.
+ */
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 /**
  * `drops` — one row per file someone uploads.
  * The short code (e.g. "T9F4K") is the row's primary lookup key.
- * File bytes themselves live on disk in /data (Railway volume), not in Postgres.
+ *
+ * v0.1 stores file bytes inline in `data` (bytea). Capped at 100 MB per upload.
+ * v0.2 will migrate to Cloudflare R2 with `storage_path` replacing `data`.
  */
 export const drops = pgTable("drops", {
-  /** Short code, base32-ish, e.g. "T9F4K". Recipient types this at tapdrop.app/g/<code>. */
+  /** Short code, base32-ish, e.g. "T9F4K". Recipient types this at /g/<code>. */
   code: varchar("code", { length: 12 }).primaryKey(),
 
-  /** Original filename, used in the download. */
+  /** Original filename, used on the download. */
   filename: text("filename").notNull(),
 
   /** MIME type the browser sent, used for Content-Type on download. */
@@ -18,8 +29,8 @@ export const drops = pgTable("drops", {
   /** File size in bytes. */
   size: integer("size").notNull(),
 
-  /** Path on the Railway volume where the file is stored. e.g. "/data/abc123". */
-  storagePath: text("storage_path").notNull(),
+  /** Raw file bytes (v0.1 — migrate to R2 in v0.2). */
+  data: bytea("data").notNull(),
 
   /** Optional sender display name (free-form, no auth in v0.1). */
   senderName: text("sender_name"),
